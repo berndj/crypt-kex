@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
   printf("\n\nInit local DH\n============ \n\n");
   dh1 = DH_new();
 
-  if (1 != DH_generate_parameters_ex(dh1, 256, DH_GENERATOR_2, NULL)) {
+  if (1 != DH_generate_parameters_ex(dh1, 512, DH_GENERATOR_2, NULL)) {
     printf("ERROR(%s, %d): \n", __FUNCTION__, __LINE__);
   }
 
@@ -126,8 +126,6 @@ int main(int argc, char *argv[])
   DH_compute_key(shared_secret1, dh_pub2, dh1);
   DH_compute_key(shared_secret2, dh_pub1, dh2);
 
-  //   if(0 == (BN_dec2bn(&pubkey, "01234567890123456789012345678901234567890123456789"))) handleErrors();
-  
   // OPENSSL_free(dh_pub1);
   // OPENSSL_free(dh_pub2);
 
