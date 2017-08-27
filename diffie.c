@@ -25,53 +25,135 @@ void hexprint(unsigned char *printBuf, int len)
 
 int crypt(unsigned char* ekey, unsigned int ekeylen, unsigned char* dkey, unsigned int dkeylen, unsigned char* iv, unsigned int ivlen);
 
+int check_dh(DH *dh_, char* title_)
+{
+  int err_code=-1;
+
+  if (dh_) {
+    if (DH_check(dh_, &err_code)==0) {
+      printf("ERROR(%s, %s): test failed\n", __FUNCTION__, title_ ? title_:"[]");
+    }
+  }
+  return err_code;
+}
+
+
+
 int main(int argc, char *argv[])
 {
   srand(time(NULL));
   DH *dh1;
   DH *dh2;
-  unsigned char *dh_secret1;
-  unsigned char *dh_secret2;
-  ASN1_STRING *str;
+  unsigned char *shared_secret1;
+  unsigned char *shared_secret2;
+  char * dh_pub1_str = NULL;
+  char * dh_pub2_str = NULL;
+  BIGNUM * dh_pub1 = NULL;
+  BIGNUM * dh_pub2 = NULL;
+
   /* A 128 bit IV */
   unsigned char *iv = (unsigned char *)"01234567890123456";
   unsigned int ivlen = 16;
 
-  str = ASN1_STRING_new();
+  printf("\n\nInit local DH\n============ \n\n");
+  dh1 = DH_new();
 
-  dh1 = DH_generate_parameters(256, 2, NULL, NULL);
+  if (1 != DH_generate_parameters_ex(dh1, 256, DH_GENERATOR_2, NULL)) {
+    printf("ERROR(%s, %d): \n", __FUNCTION__, __LINE__);
+  }
+
+  if (dh1)
+    DHparams_print_fp(stdout, dh1);
+
+
   //dh2 = DH_generate_parameters(256, 2, NULL, NULL);
+  {
+    unsigned char *dh_params_str = NULL;
+    unsigned char **dh_params_str_ptr = &dh_params_str;
+    unsigned int len = 0;
 
-  str->length = i2d_DHparams(dh1, &str->data);
+    printf("\n\nInit PKCS #3 for peer DH(PKCS #3, ASN.1)\n=============\n\n");
+    len=i2d_DHparams(dh1, dh_params_str_ptr);
 
-  dh2 = d2i_DHparams(NULL, (const unsigned char **)&str->data, str->length);
+    if (dh_params_str_ptr && *dh_params_str_ptr) {
+      hexprint(*dh_params_str_ptr, len);
+    }
+
+    printf("\n\nInit peer DH with the PKCS #3\n=============\n\n");
+    dh2 = d2i_DHparams(NULL, (const unsigned char **)dh_params_str_ptr, len);
+
+    if (dh2)
+      DHparams_print_fp(stdout, dh2);
+
+    if (!dh2 || !dh1)
+      exit(-1);
+
+  }
+
+  if (check_dh(dh2, "dh2") < 0 )
+    return -1;
+
+  if (check_dh(dh1, "dh1") < 0 )
+    return -1;
+
 
   //  memcpy(dh2, dh1, sizeof(*dh1));
 
   DH_generate_key(dh1);
   DH_generate_key(dh2);
 
-  dh_secret1 = malloc(DH_size(dh1));
-  memset(dh_secret1, 0, DH_size(dh1));
-  dh_secret2 = malloc(DH_size(dh2));
-  memset(dh_secret2, 0, DH_size(dh2));
 
-  DH_compute_key(dh_secret1, dh2->pub_key, dh1);
-  DH_compute_key(dh_secret2, dh1->pub_key, dh2);
+  if (dh1->pub_key)
+    dh_pub1_str = BN_bn2hex(dh1->pub_key);
+  if (dh2->pub_key)
+    dh_pub2_str = BN_bn2hex(dh2->pub_key);
+ 
+  printf("\n\nGenerate shared-secret locally and on peer\n=============\n\n");
 
-  printf("Public  Key 1: \n");
+  printf("Extracted public keys would be send to peer: \n");
+  printf("1: %s\n", dh_pub1_str ? dh_pub1_str:"[]");
+  printf("2: %s\n", dh_pub2_str ? dh_pub2_str:"[]");
+
+  BN_hex2bn(&dh_pub1, dh_pub1_str);
+  BN_hex2bn(&dh_pub2, dh_pub2_str);
+
+
+  shared_secret1 = malloc(DH_size(dh1));
+  memset(shared_secret1, 0, DH_size(dh1));
+  shared_secret2 = malloc(DH_size(dh2));
+  memset(shared_secret2, 0, DH_size(dh2));
+
+  DH_compute_key(shared_secret1, dh_pub2, dh1);
+  DH_compute_key(shared_secret2, dh_pub1, dh2);
+
+  //   if(0 == (BN_dec2bn(&pubkey, "01234567890123456789012345678901234567890123456789"))) handleErrors();
+  
+  // OPENSSL_free(dh_pub1);
+  // OPENSSL_free(dh_pub2);
+
+  printf("Public keys in DH structure: ");
+  printf("\n1: ");
   BN_print_fp(stdout, dh1->pub_key);
-  printf("\nSecret Key 1: size=%dbit\n", DH_size(dh1)*8);
-  hexprint(dh_secret1, DH_size(dh1));
-  printf("Public  Key 1: \n");
+  printf("\n2: ");
   BN_print_fp(stdout, dh2->pub_key);
-  printf("\nSecret Key 2: size=%dbit\n", DH_size(dh2)*8);
-  hexprint(dh_secret2, DH_size(dh2));
 
-  crypt(dh_secret1, DH_size(dh1), dh_secret2, DH_size(dh2), iv, ivlen);
+  printf("\nPriv keys in DH structure: ");
+  printf("\n1: ");
+  BN_print_fp(stdout, dh1->priv_key);
+  printf("\n2: ");
+  BN_print_fp(stdout, dh2->priv_key);
 
-  free(dh_secret1);
-  free(dh_secret2);
+  printf("\nShared key: ");
+  printf("\n1: ");
+  hexprint(shared_secret1, DH_size(dh1));
+  printf("2: ");
+  hexprint(shared_secret2, DH_size(dh2));
+
+
+  crypt(shared_secret1, DH_size(dh1), shared_secret2, DH_size(dh2), iv, ivlen);
+
+  free(shared_secret1);
+  free(shared_secret2);
   DH_free(dh1);
   DH_free(dh2);
 
